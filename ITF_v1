@@ -1,0 +1,201 @@
+//@version=5
+indicator("ITF_v1", overlay=true, max_labels_count=400, max_boxes_count=400)
+
+// =============================================================================
+// 1. INPUTS & SETTINGS
+// =============================================================================
+
+// --- Group: EMA Settings ---
+grp_ema      = "EMA Settings"
+ema_len      = input.int(20, title="Current EMA Length", group=grp_ema)
+high_tf      = input.timeframe("60", title="Higher Timeframe EMA", group=grp_ema)
+
+// --- Group: Bar Counter - Display Settings ---
+grp_counter_disp = "Bar Counter - Display Settings"
+show_bar_count        = input.bool(true, title="Enable Bar Count", group=grp_counter_disp)
+sizeOption            = input.string(title='Label Size', options=['Auto', 'Huge', 'Large', 'Normal', 'Small', 'Tiny'], defval='Normal', group=grp_counter_disp)
+c_contador            = input.int(2, title='Display at every X bars (Interval)', minval=1, group=grp_counter_disp)
+enable_session_filter = input.bool(false, title="Enable Session Filter", group=grp_counter_disp)
+
+// --- Group: Bar Counter - Color Settings ---
+grp_counter_col  = "Bar Counter - Color Settings"
+c_labelColor        = input.color(color.gray, 'Default Text Color', group=grp_counter_col)
+specialMultiple     = input.int(12, title="Special Color Multiple (e.g., 12, 24)", minval=1, maxval=100, group=grp_counter_col)
+specialColor        = input.color(color.blue, title="Color for Multiples of 12", group=grp_counter_col)
+specialCount1       = input.int(18, title="Special Number (Red Line)", minval=1, maxval=1000, group=grp_counter_col)
+specialColor_red    = input.color(color.red, title="Color for Bar 18", group=grp_counter_col)
+
+// --- Group: Gap Settings (FVG) ---
+grp_fvg   = 'Gap Settings (FVG)'
+show_fvg  = input(true, 'Show Gaps', group = grp_fvg)
+bull_css  = input.color(color.new(#00c853, 75), 'Bullish Color', group = grp_fvg)
+bear_css  = input.color(color.new(#ff3d00, 75), 'Bearish Color', group = grp_fvg)
+
+// --- Group: Gap Filled Behavior ---
+grp_fill  = 'Gap Filled Behavior'
+filled_act = input.string('Keep & Fade', 'Action on Filled', options = ['Hide Completely', 'Keep & Fade'], group = grp_fill)
+bull_fade = input.color(color.new(#00c853, 94), 'Bullish Filled Color', group = grp_fill)
+bear_fade = input.color(color.new(#ff3d00, 94), 'Bearish Filled Color', group = grp_fill)
+
+// --- Group: Gap Extension Settings ---
+grp_ext   = 'Gap Extension Settings'
+ext_mode  = input.string('Fixed Length', 'Extension Mode', options = ['Fixed Length', 'Until Filled'], group = grp_ext)
+ext_bars  = input.int(5, 'Fixed Bars Count', minval = 0, tooltip = '0 means no extension (original gap width only)', group = grp_ext)
+
+// --- Group: Gap Filter Settings ---
+grp_fltr  = 'Gap Filter Settings'
+use_width = input(false, 'Enable Min Width Filter', group = grp_fltr)
+gap_width = input.float(0, 'Min Gap Size', group = grp_fltr)
+gap_meth  = input.string('Points', 'Filter Unit', options = ['Points', '%', 'ATR'], group = grp_fltr)
+
+// --- Group: Signal Bar Settings ---
+grp_signals = "Signal Bar Settings"
+show_signals = input.bool(true, title="Show Signal Shapes", group=grp_signals)
+
+
+// =============================================================================
+// 2. CALCULATIONS & TYPE DEFINITIONS
+// =============================================================================
+
+// --- Custom Type for Gap Tracking ---
+type GapBox
+    box   id          
+    float target_lvl  
+    bool  is_bull     
+
+var GapBox[] active_gaps = array.new<GapBox>(0)
+
+// --- Global variables & constants ---
+atr = ta.atr(200)
+n = bar_index
+is_futures = syminfo.type == "futures"
+
+// --- Dynamic Label Size Conversion ---
+labelSize = sizeOption == 'Huge' ? size.huge : sizeOption == 'Large' ? size.large : sizeOption == 'Small' ? size.small : sizeOption == 'Tiny' ? size.tiny : sizeOption == 'Auto' ? size.auto : size.normal
+
+
+// =============================================================================
+// 3. CORE LOGIC & MODULES
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// MODULE A: Dual Timeframe EMA
+// -----------------------------------------------------------------------------
+ema_current = ta.ema(close, ema_len)
+ema_high_raw = ta.ema(close, ema_len)
+ema_high = request.security(syminfo.tickerid, high_tf, ema_high_raw, gaps = barmerge.gaps_on)
+
+plot(ema_current, color=color.gray, title="Current TF EMA", linewidth=1)
+plot(ema_high, color=color.blue, title="Higher TF EMA", linewidth=1, style=plot.style_line)
+
+
+// -----------------------------------------------------------------------------
+// MODULE B: Al Brooks Bar Counter
+// -----------------------------------------------------------------------------
+is_new_day() =>
+    d = dayofweek
+    na(d[1]) or d != d[1]
+
+is_in_trading_time() =>
+    if not enable_session_filter
+        true
+    else
+        if is_futures
+            time(timeframe.period, "0830-1515", "America/Chicago")
+        else
+            time(timeframe.period, "0930-1600", "America/New_York")
+
+var int count = 1
+var bool counting = false
+
+if is_new_day()
+    count := 1
+    counting := false
+
+if is_in_trading_time()
+    if not counting
+        counting := true
+        count := 1
+    else
+        count += 1
+else
+    counting := false
+
+is_interval_match = (count == 1 or count % c_contador == 1)
+is_special_multiple = (count % specialMultiple == 0)
+is_special_18 = (count == specialCount1)
+
+should_display_label = show_bar_count and counting and (is_interval_match or is_special_multiple or is_special_18)
+
+if should_display_label
+    labelColor = is_special_18 ? specialColor_red : (is_special_multiple ? specialColor : c_labelColor)
+    label1 = label.new(bar_index, 0, style=label.style_none, text=str.tostring(count))
+    label.set_textcolor(label1, labelColor)
+    label.set_yloc(label1, yloc.belowbar)
+    label.set_size(label1, labelSize)
+
+
+// -----------------------------------------------------------------------------
+// MODULE C: Gap Tracker (FVG)
+// -----------------------------------------------------------------------------
+check_width(top, btm) =>
+    var is_valid = true
+    if use_width
+        dist = top - btm
+        is_valid := switch gap_meth
+            'Points' => dist > gap_width
+            '%'      => (dist / btm * 100) > gap_width
+            'ATR'    => dist > (atr * gap_width)
+    is_valid
+
+is_bull_fvg = show_fvg and (low > high[2]) and check_width(low, high[2])
+is_bear_fvg = show_fvg and (high < low[2]) and check_width(low[2], high)
+
+if array.size(active_gaps) > 0
+    for i = array.size(active_gaps) - 1 to 0
+        GapBox g = array.get(active_gaps, i)
+        
+        if ext_mode == 'Until Filled'
+            box.set_right(g.id, n)
+        
+        bool is_filled = false
+        if g.is_bull
+            if low <= g.target_lvl
+                is_filled := true
+        else
+            if high >= g.target_lvl
+                is_filled := true
+                
+        if is_filled
+            if filled_act == 'Hide Completely'
+                box.delete(g.id)
+            else
+                box.set_bgcolor(g.id, g.is_bull ? bull_fade : bear_fade)
+            
+            array.remove(active_gaps, i)
+
+int right_boundary = ext_mode == 'Until Filled' ? n : (n + ext_bars)
+
+if is_bull_fvg
+    box_id = box.new(left = n-2, top = low, right = right_boundary, bottom = high[2], 
+                     border_color = na, bgcolor = bull_css)
+    array.push(active_gaps, GapBox.new(box_id, high[2], true))
+
+if is_bear_fvg
+    box_id = box.new(left = n-2, top = low[2], right = right_boundary, bottom = high, 
+                     border_color = na, bgcolor = bear_css)
+    array.push(active_gaps, GapBox.new(box_id, low[2], false))
+
+
+// -----------------------------------------------------------------------------
+// MODULE D: Signal Bar & Inside Bar
+// -----------------------------------------------------------------------------
+bar_middle = (high + low) / 2
+
+bear_signal   = show_signals and (high > high[1]) and (close < bar_middle)
+bull_signal   = show_signals and (low < low[1]) and (close > bar_middle)
+inside_signal = show_signals and (high <= high[1]) and (low >= low[1])
+
+plotshape(bear_signal, title="Bearish Signal", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
+plotshape(bull_signal, title="Bullish Signal", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny)
+plotshape(inside_signal, title="Inside Bar", style=shape.diamond, location=location.belowbar, color=color.blue, size=size.tiny)
