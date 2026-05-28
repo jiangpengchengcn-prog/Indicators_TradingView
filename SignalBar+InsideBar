@@ -1,0 +1,31 @@
+//@version=5
+indicator("SignalBar+InsideBar", overlay=true)
+
+// Calculate the midpoint of the current bar
+bar_middle = (high + low) / 2
+
+// --- Signal Condition Definitions ---
+
+// 1. Bearish Signal
+// High is higher than the previous bar's high, but close is below the midpoint (1/2 position)
+bear_signal = (high > high[1]) and (close < bar_middle)
+
+// 2. Bullish Signal
+// Low is lower than the previous bar's low, but close is above the midpoint
+bull_signal = (low < low[1]) and (close > bar_middle)
+
+// 3. Inside Bar Signal
+// Current bar's high is less than or equal to previous high, and low is greater than or equal to previous low
+inside_signal = (high <= high[1]) and (low >= low[1])
+
+
+// --- Plotting Shapes ---
+
+// Bearish Signal: Tiny red triangle pointing down above the bar
+plotshape(bear_signal, title="Bearish Signal", style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
+
+// Bullish Signal: Tiny green triangle pointing up below the bar
+plotshape(bull_signal, title="Bullish Signal", style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny)
+
+// Inside Bar Signal: Tiny blue diamond below the bar
+plotshape(inside_signal, title="Inside Bar", style=shape.diamond, location=location.belowbar, color=color.blue, size=size.tiny)
