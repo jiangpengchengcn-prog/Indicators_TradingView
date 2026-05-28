@@ -1,5 +1,5 @@
 //@version=5
-indicator("2EMA+BarCounter", overlay=true, max_labels_count=400)
+indicator("2EMA&BarCounter", overlay=true, max_labels_count=400)
 
 // ==========================================
 // --- Dimension 1 & 2: Dual TF EMA Settings ---
